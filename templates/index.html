@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Code Knowledge Graph</title>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; overflow: hidden; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #ffffff; color: #24292f; display: flex; flex-direction: column; }
+
+        /* Header */
+        #header { background: #f6f8fa; border-bottom: 1px solid #d0d7de; padding: 8px 20px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+        #header h1 { font-size: 1.1em; margin: 0; color: #0969da; }
+        #stats-bar { display: flex; gap: 10px; font-size: 0.8em; color: #57606a; align-items: center; }
+        .stat-item { background: #eaeef2; padding: 2px 8px; border-radius: 10px; }
+
+        /* Layout - 关键：main-container 占满剩余空间，overflow:hidden 防止整体滚动 */
+        #main-container { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+        /* 关键：controls-panel 不设 overflow-y，让 tab-content 自己滚动 */
+        #controls-panel { width: 360px; background: #f6f8fa; border-right: 1px solid #d0d7de; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+        #graph-container { flex: 1; position: relative; background: #ffffff; min-width: 0; }
+        #graph { width: 100%; height: 100%; }
+
+        /* Sections */
+        .section { padding: 12px 16px; border-bottom: 1px solid #d0d7de; flex-shrink: 0; }
+        .section h3 { margin: 0 0 10px 0; font-size: 0.95em; color: #0969da; }
+        .form-group { margin-bottom: 10px; }
+        .form-group label { display: block; font-size: 0.85em; color: #57606a; margin-bottom: 4px; }
+
+        /* Inputs */
+        input[type="text"], input[type="number"], select, textarea {
+            width: 100%; padding: 8px 10px; background: #ffffff; border: 1px solid #d0d7de;
+            border-radius: 6px; color: #24292f; font-size: 0.9em; outline: none;
+        }
+        input:focus, select:focus, textarea:focus { border-color: #0969da; }
+        input[type="range"] { width: 100%; accent-color: #0969da; }
+        .range-row { display: flex; align-items: center; gap: 10px; }
+        .range-val { min-width: 30px; text-align: right; color: #0969da; font-weight: bold; font-size: 0.9em; }
+
+        /* Buttons */
+        button { width: 100%; padding: 10px; border: 1px solid #d0d7de; border-radius: 6px; background: #eaeef2; color: #24292f; font-size: 0.95em; cursor: pointer; transition: all 0.2s; }
+        button:hover { background: #d0d7de; border-color: #0969da; }
+        button.primary { background: #0969da; border-color: #0969da; color: white; }
+        button.primary:hover { background: #0550ae; }
+        button.danger { background: #cf222e; border-color: #cf222e; color: white; }
+        button.danger:hover { background: #a40e26; }
+        button.success { background: #238636; border-color: #238636; color: white; }
+        button.success:hover { background: #1a7f37; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        button.inline { width: auto; display: inline-block; padding: 6px 14px; font-size: 0.85em; }
+
+        /* Loader */
+        #loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); border: 4px solid #d0d7de; border-top: 4px solid #0969da; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; display: none; z-index: 10; }
+        @keyframes spin { 0% { transform: translate(-50%, -50%) rotate(0deg); } 100% { transform: translate(-50%, -50%) rotate(360deg); } }
+
+        /* Tabs - tab-bar 固定高度，tab-content flex:1 自己滚动 */
+        .tab-bar { display: flex; background: #eaeef2; flex-shrink: 0; border-bottom: 1px solid #d0d7de; }
+        .tab-btn { flex: 1; padding: 8px 4px; text-align: center; cursor: pointer; font-size: 0.8em; border: none; border-bottom: 2px solid transparent; background: transparent; color: #57606a; font-weight: bold; width: auto; border-radius: 0; }
+        .tab-btn:hover { background: #d0d7de; }
+        .tab-btn.active { border-bottom-color: #0969da; color: #0969da; }
+        .tab-content { display: none; flex: 1; overflow-y: auto; min-height: 0; }
+        .tab-content.active { display: flex; flex-direction: column; }
+
+        /* Progress */
+        .progress-bar { background: #eaeef2; border-radius: 4px; height: 8px; overflow: hidden; margin: 8px 0; }
+        .progress-bar-fill { height: 100%; background: #238636; width: 0%; transition: width 0.3s; border-radius: 4px; }
+
+        /* Path info */
+        .path-info { padding: 8px 12px; background: #ddf4ff; border: 1px solid #0969da; border-radius: 6px; font-size: 0.85em; color: #0969da; display: none; }
+
+        /* Search results */
+        .search-result-item { padding: 8px 12px; border-bottom: 1px solid #d0d7de; cursor: pointer; transition: background 0.15s; }
+        .search-result-item:hover { background: #eaeef2; }
+        .search-result-item .path { font-size: 0.8em; color: #57606a; }
+        .search-result-item .score { float: right; color: #238636; font-weight: bold; font-size: 0.85em; }
+        .search-result-item .comment { font-size: 0.82em; color: #57606a; margin-top: 4px; max-height: 60px; overflow: hidden; }
+        .history-row { position: relative; padding-left: 34px; }
+        .history-row input.history-select { position: absolute; left: 10px; top: 10px; width: auto; }
+
+        /* Code preview */
+        .code-preview { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: 10px; font-family: 'Consolas', 'Courier New', monospace; font-size: 0.82em; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; color: #24292f; }
+
+        /* Graph toolbar */
+        #graph-toolbar { position: absolute; top: 10px; right: 10px; z-index: 5; display: flex; gap: 6px; }
+        #graph-toolbar button { width: auto; padding: 5px 12px; font-size: 0.82em; border-radius: 4px; }
+
+        /* Build message */
+        #build-message { font-size: 0.85em; color: #57606a; min-height: 1.2em; margin-top: 4px; }
+
+        /* Overview cards */
+        .overview-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        .ov-card { background: #ffffff; border: 1px solid #d0d7de; border-radius: 6px; padding: 10px 8px; text-align: center; }
+        .ov-card-val { font-size: 1.5em; font-weight: bold; color: #0969da; }
+        .ov-card-label { font-size: 0.78em; color: #57606a; margin-top: 2px; }
+
+        /* Overview node detail - 可滚动区域 */
+        #ov-node-detail-wrap { flex: 1; min-height: 80px; overflow: hidden; display: flex; flex-direction: column; }
+        #ov-node-detail { font-size: 0.85em; color: #57606a; overflow-y: auto; flex: 1; }
+    </style>
+</head>
+<body>
+
+    <div id="header">
+        <h1>Code Knowledge Graph</h1>
+        <div id="stats-bar">
+            <span class="stat-item" id="stat-mode">Mode: Query</span>
+        </div>
+    </div>
+
+    <div id="main-container">
+        <div id="controls-panel">
+            <!-- Tab 栏 - 固定在顶部 -->
+            <div class="tab-bar">
+                <button class="tab-btn active" data-tab="build-tab">代码图谱</button>
+                <button class="tab-btn" data-tab="overview-tab">概览</button>
+                <button class="tab-btn" data-tab="history-tab">历史</button>
+                <button class="tab-btn" data-tab="edit-tab">编辑</button>
+                <button class="tab-btn" data-tab="config-tab">配置</button>
+            </div>
+
+            <!-- 代码图谱面板 -->
+            <div id="build-tab" class="tab-content active">
+                <div class="section">
+                    <h3>构建代码图谱</h3>
+                    <div class="form-group">
+                        <label>Python 项目路径</label>
+                        <div style="display:flex;gap:6px;">
+                            <input type="text" id="code-path" placeholder="例如: E:/my_project/src" style="flex:1">
+                            <button class="inline" id="browse-path-button">扫描</button>
+                        </div>
+                    </div>
+                    <div id="path-info" class="path-info"></div>
+                    <div class="form-group">
+                        <label>输出数据库</label>
+                        <input type="text" id="code-graph-output" value="code_graph.sqlite">
+                    </div>
+                    <button class="success" id="build-code-graph-button">构建代码图谱</button>
+                    <div class="progress-bar" style="margin-top:8px;"><div id="build-progress" class="progress-bar-fill"></div></div>
+                    <div id="build-message"></div>
+                </div>
+                <div class="section">
+                    <h3>代码语义搜索</h3>
+                    <div class="form-group">
+                        <input type="text" id="code-search-query" placeholder="例如: '处理用户登录验证'">
+                    </div>
+                    <div class="form-group">
+                        <label>搜索阈值</label>
+                        <div class="range-row">
+                            <input type="range" id="code-search-threshold" min="0.1" max="1.0" step="0.05" value="0.3">
+                            <span class="range-val" id="code-search-threshold-value">0.30</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>n_hop</label>
+                        <div class="range-row">
+                            <input type="range" id="code-search-hops" min="0" max="5" step="1" value="1">
+                            <span class="range-val" id="code-search-hops-value">1</span>
+                        </div>
+                    </div>
+                    <button class="primary" id="code-search-button">搜索代码</button>
+                    <div id="code-search-results" style="max-height:300px;overflow-y:auto;margin-top:8px;"></div>
+                </div>
+            </div>
+
+            <!-- 概览面板 -->
+            <div id="overview-tab" class="tab-content">
+                <div class="section">
+                    <h3>图谱概览</h3>
+                    <div class="form-group">
+                        <label>数据库文件</label>
+                        <input type="text" id="overview-db-path" value="code_graph.sqlite">
+                    </div>
+                    <button class="primary" id="load-overview-button">加载概览</button>
+                </div>
+                <div id="overview-stats" style="display:none;">
+                    <div class="section">
+                        <h3>统计信息</h3>
+                        <div class="overview-cards">
+                            <div class="ov-card"><div class="ov-card-val" id="ov-files">0</div><div class="ov-card-label">文件</div></div>
+                            <div class="ov-card"><div class="ov-card-val" id="ov-folders">0</div><div class="ov-card-label">文件夹</div></div>
+                            <div class="ov-card"><div class="ov-card-val" id="ov-imports">0</div><div class="ov-card-label">引用</div></div>
+                            <div class="ov-card"><div class="ov-card-val" id="ov-contains">0</div><div class="ov-card-label">包含</div></div>
+                            <div class="ov-card"><div class="ov-card-val" id="ov-commented">0</div><div class="ov-card-label">已注释</div></div>
+                            <div class="ov-card"><div class="ov-card-val" id="ov-total-nodes">0</div><div class="ov-card-label">总节点</div></div>
+                        </div>
+                    </div>
+                    <div class="section">
+                        <h3>可视化控制</h3>
+                        <div class="form-group">
+                            <label>显示节点类型</label>
+                            <div style="display:flex;gap:12px;margin-top:4px;">
+                                <label style="font-size:0.85em;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="ov-show-files" checked> 文件</label>
+                                <label style="font-size:0.85em;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="ov-show-folders" checked> 文件夹</label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>显示关系类型</label>
+                            <div style="display:flex;gap:12px;margin-top:4px;">
+                                <label style="font-size:0.85em;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="ov-show-imports" checked> 引用 (imports)</label>
+                                <label style="font-size:0.85em;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="ov-show-contains" checked> 包含 (contains)</label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>节点标签</label>
+                            <select id="ov-label-mode">
+                                <option value="name">文件名</option>
+                                <option value="path">相对路径</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>布局</label>
+                            <select id="ov-layout">
+                                <option value="forceAtlas2Based">力导向 (ForceAtlas2)</option>
+                                <option value="hierarchical">层级 (Hierarchical)</option>
+                            </select>
+                        </div>
+                        <button class="success" id="ov-render-button">渲染图谱</button>
+                    </div>
+                    <div class="section" style="flex:1;min-height:80px;display:flex;flex-direction:column;overflow:hidden;">
+                        <h3>节点详情</h3>
+                        <div id="ov-node-detail-wrap">
+                            <div id="ov-node-detail">点击图谱中的节点查看详情</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 历史面板 -->
+            <div id="history-tab" class="tab-content">
+                <div class="section">
+                    <h3>查询历史</h3>
+                    <div style="display:flex;gap:6px;margin-bottom:8px;">
+                        <button class="inline" id="refresh-history-button">刷新</button>
+                        <button class="inline" id="merge-history-button">合并所选</button>
+                        <button class="inline danger" id="delete-history-selected-button">删除所选</button>
+                        <label style="font-size:0.85em;display:flex;align-items:center;gap:4px;">
+                            <input type="checkbox" id="auto-refresh-history" checked> 自动刷新
+                        </label>
+                    </div>
+                    <label style="font-size:0.85em;display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+                        <input type="checkbox" id="history-select-all"> 全选当前列表
+                    </label>
+                    <div id="history-list" style="max-height:300px;overflow-y:auto;"></div>
+                </div>
+                <div class="section" style="flex:1;min-height:80px;display:flex;flex-direction:column;overflow:hidden;">
+                    <h3>查询结果详情</h3>
+                    <div id="history-detail" style="font-size:0.85em;color:#57606a;flex:1;overflow-y:auto;">
+                        选择一条历史记录查看详情
+                    </div>
+                </div>
+            </div>
+
+            <!-- 编辑面板 - 修复了之前的嵌套错误 -->
+            <div id="edit-tab" class="tab-content">
+                <div class="section">
+                    <h3>添加 / 修改节点</h3>
+                    <div class="form-group">
+                        <label>节点 ID (留空为新增)</label>
+                        <input type="number" id="node-id" placeholder="例如: 123" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>名称</label>
+                        <input type="text" id="node-name" placeholder="实体名称">
+                    </div>
+                    <div class="form-group">
+                        <label>类型</label>
+                        <input type="text" id="node-type" placeholder="实体类型">
+                    </div>
+                    <div class="form-group">
+                        <label>描述</label>
+                        <textarea id="node-desc" rows="4" style="width:100%;resize:vertical;"></textarea>
+                    </div>
+                    <div style="display:flex;gap:6px;">
+                        <button class="primary" id="save-node-button" style="flex:1;">保存节点</button>
+                        <button class="danger" id="delete-node-button" style="flex:1;">删除节点</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 配置面板 -->
+            <div id="config-tab" class="tab-content">
+                <div class="section">
+                    <h3>LLM 配置 (OpenAI-compatible)</h3>
+                    <div class="form-group">
+                        <label>Base URL</label>
+                        <input type="text" id="cfg-llm-base-url" placeholder="http://localhost:1234/v1/">
+                    </div>
+                    <div class="form-group">
+                        <label>API Key</label>
+                        <input type="text" id="cfg-llm-api-key" placeholder="not-needed">
+                    </div>
+                    <div class="form-group">
+                        <label>Model</label>
+                        <input type="text" id="cfg-llm-model" placeholder="qwen3_30ba3b">
+                    </div>
+                </div>
+                <div class="section">
+                    <h3>Embedding 配置 (LM Studio)</h3>
+                    <div class="form-group">
+                        <label>Base URL</label>
+                        <input type="text" id="cfg-emb-base-url" placeholder="http://localhost:1234/v1/">
+                    </div>
+                    <div class="form-group">
+                        <label>API Key</label>
+                        <input type="text" id="cfg-emb-api-key" placeholder="not-needed">
+                    </div>
+                    <div class="form-group">
+                        <label>Model</label>
+                        <input type="text" id="cfg-emb-model" placeholder="text-embedding-bge-m3">
+                    </div>
+                    <button class="success" id="save-config-button">保存配置</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="graph-container">
+            <div id="graph-toolbar">
+                <button id="btn-global-overview" title="加载并渲染全局 overview">全局概览</button>
+                <button id="btn-lock" title="锁定/解锁图谱（关闭物理模拟，保留拖拽）">🔓 锁定</button>
+                <button id="btn-fit" title="适应视图">Fit</button>
+            </div>
+            <div id="graph"></div>
+            <div id="loader"></div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        // ==================== DOM ====================
+        const loader = document.getElementById('loader');
+
+        // ==================== Graph State ====================
+        let network = null;
+        const allNodes = new vis.DataSet();
+        const allEdges = new vis.DataSet();
+
+        // ==================== Tab Switching ====================
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.getElementById(btn.dataset.tab).classList.add('active');
+                btn.classList.add('active');
+            });
+        });
+
+        // ==================== Init Graph ====================
+        function initGraph() {
+            const container = document.getElementById('graph');
+            const data = { nodes: allNodes, edges: allEdges };
+            const options = {
+                nodes: {
+                    shape: 'dot',
+                    size: 16,
+                    font: { size: 13, color: '#24292f', face: 'Segoe UI, system-ui, sans-serif' },
+                    borderWidth: 1,
+                    borderWidthSelected: 2,
+                    shadow: false,
+                },
+                edges: {
+                    width: 1.5,
+                    smooth: { type: 'dynamic' },
+                    arrows: { to: { enabled: true, scaleFactor: 0.8, type: 'arrow' } },
+                    color: { color: '#57606a', highlight: '#0969da', hover: '#0969da' },
+                },
+                physics: {
+                    enabled: true,
+                    solver: 'forceAtlas2Based',
+                    stabilization: {
+                        enabled: true,
+                        iterations: 300,
+                        updateInterval: 25,
+                    },
+                    forceAtlas2Based: {
+                        gravitationalConstant: -60,
+                        centralGravity: 0.01,
+                        springLength: 100,
+                        springConstant: 0.08,
+                        avoidOverlap: 0.5
+                    }
+                },
+                interaction: {
+                    hover: true, dragNodes: true, zoomView: true, dragView: true, tooltipDelay: 200
+                },
+                layout: { improvedLayout: true },
+                groups: {
+                    file: { color: { background: '#0969da', border: '#0550ae' }, shape: 'box', size: 14, font: { color: '#ffffff' } },
+                    folder: { color: { background: '#238636', border: '#1a7f37' }, shape: 'diamond', size: 16, font: { color: '#24292f' } },
+                    query: { color: { background: '#fff8c5', border: '#bf8700' }, shape: 'dot', size: 13, font: { color: '#24292f', size: 11 }, borderWidth: 2 },
+                }
+            };
+            network = new vis.Network(container, data, options);
+
+            network.on("click", function (params) {
+                if (params.nodes.length > 0) {
+                    const nodeId = params.nodes[0];
+                    const node = allNodes.get(nodeId);
+                    if (node && node.group === 'query') return;
+                    // If overview tab is active, show detail in overview panel
+                    const overviewTab = document.getElementById('overview-tab');
+                    if (overviewTab && overviewTab.classList.contains('active')) {
+                        handleOverviewNodeClick(params);
+                        return;
+                    }
+                    document.getElementById('node-id').value = node.id;
+                    document.getElementById('node-name').value = node.raw_data.name || '';
+                    document.getElementById('node-type').value = node.raw_data.type || '';
+                    document.getElementById('node-desc').value = node.raw_data.description || node.raw_data.comment || '';
+                    // Switch to edit tab
+                    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                    document.getElementById('edit-tab').classList.add('active');
+                    document.querySelector('[data-tab="edit-tab"]').classList.add('active');
+                }
+            });
+
+            network.on("doubleClick", function (params) {
+                if (params.nodes.length > 0) {
+                    const nodeId = params.nodes[0];
+                    const node = allNodes.get(nodeId);
+                    if (node && node.group === 'query') return;
+                    if (node.isExpanded) collapseNode(nodeId);
+                    else expandNode(nodeId);
+                }
+            });
+        }
+
+        // ==================== Graph Helpers ====================
+        function resolveGraphNodeId(rawId) {
+            if (allNodes.get(rawId)) return rawId;
+            const numericId = Number(rawId);
+            if (Number.isFinite(numericId) && allNodes.get(numericId)) return numericId;
+            return rawId;
+        }
+
+        function formatSimilarity(score) {
+            const numericScore = Number(score);
+            if (!Number.isFinite(numericScore)) return '';
+            return (numericScore * 100).toFixed(1) + '%';
+        }
+
+        function applyQueryOverlay(graphData) {
+            if (!graphData || !graphData.query || !graphData.initial_nodes) return;
+            const queryNodeId = 'query_node';
+            allNodes.update({
+                id: queryNodeId,
+                label: 'Query\n"' + graphData.query + '"',
+                group: 'query',
+                raw_data: {
+                    id: queryNodeId,
+                    name: graphData.query,
+                    type: 'query',
+                    description: 'Semantic search query',
+                },
+                isExpanded: false,
+                _expandedFrom: null,
+            });
+
+            const queryEdges = Object.entries(graphData.initial_nodes)
+                .map(function(entry) {
+                    const targetId = resolveGraphNodeId(entry[0]);
+                    if (!allNodes.get(targetId)) return null;
+                    const scoreLabel = formatSimilarity(entry[1]);
+                    return {
+                        id: 'query-' + String(targetId),
+                        from: queryNodeId,
+                        to: targetId,
+                        label: scoreLabel ? 'similarity ' + scoreLabel : 'similarity',
+                        dashes: true,
+                        arrows: { to: { enabled: true, scaleFactor: 0.7, type: 'arrow' } },
+                        color: { color: '#bf8700', highlight: '#9a6700', hover: '#9a6700' },
+                        font: { align: 'top', color: '#7d4e00', size: 12 },
+                        title: scoreLabel ? 'Similarity: ' + scoreLabel : 'Similarity',
+                    };
+                })
+                .filter(function(edge) { return edge !== null; });
+
+            if (queryEdges.length > 0) allEdges.update(queryEdges);
+        }
+
+        function updateGraph(data, clearExisting = true) {
+            const newNodes = data.nodes
+                .filter(n => !allNodes.get(n.id))
+                .map(n => ({
+                    id: n.id,
+                    label: n.name + (n.path ? '\n' + n.path : ''),
+                    title: '<b>' + n.name + '</b>' +
+                        (n.type ? '<br>类型: ' + n.type : '') +
+                        (n.path ? '<br>路径: ' + n.path : '') +
+                        (n.description ? '<br>描述: ' + n.description : '') +
+                        (n.comment ? '<br><br>' + n.comment.substring(0, 200) : '') +
+                        '<br><br><i>双击展开/折叠</i>',
+                    group: n.type,
+                    raw_data: n,
+                    isExpanded: false,
+                    _expandedFrom: n._expandedFrom || null
+                }));
+
+            const newEdges = data.edges
+                .map(e => {
+                    const edgeType = e.properties ? e.properties.type : '';
+                    const score = e.properties && Number.isFinite(Number(e.properties.score)) ? Number(e.properties.score) : null;
+                    const edgeId = e.id || ('s' + e.source + '-t' + e.target + '-' + edgeType);
+                    if (allEdges.get(edgeId)) return null;
+                    return {
+                        id: edgeId,
+                        from: e.source,
+                        to: e.target,
+                        label: edgeType === 'similarity' && score !== null ? 'similarity ' + formatSimilarity(score) : edgeType,
+                        title: e.properties ? (e.properties.description || e.properties.import_name || e.properties.query || '') : '',
+                        dashes: e.dashes || edgeType === 'similarity',
+                        color: edgeType === 'similarity' ? { color: '#bf8700', highlight: '#9a6700', hover: '#9a6700' } : undefined,
+                        font: edgeType === 'similarity' ? { align: 'top', color: '#7d4e00', size: 12 } : undefined,
+                        _expandedFrom: e._expandedFrom || null
+                    };
+                })
+                .filter(e => e !== null);
+
+            if (clearExisting) { allNodes.clear(); allEdges.clear(); }
+            if (newNodes.length > 0) allNodes.update(newNodes);
+            if (newEdges.length > 0) allEdges.update(newEdges);
+            applyQueryOverlay(data);
+        }
+
+        function renderGraphData(graphData) {
+            if (!graphData || !graphData.nodes || graphData.nodes.length === 0) return false;
+            if (graphData.view_mode === 'merged_sessions') return renderMergedGraphData(graphData);
+            updateGraph(graphData, true);
+            network.setOptions({
+                physics: {
+                    enabled: true,
+                    solver: 'forceAtlas2Based',
+                    stabilization: { enabled: true, iterations: 300, updateInterval: 25 },
+                    forceAtlas2Based: { gravitationalConstant: -60, centralGravity: 0.01, springLength: 100, springConstant: 0.08, avoidOverlap: 0.5 }
+                },
+                layout: { improvedLayout: true }
+            });
+            setupAutoLock();
+            network.fit();
+            document.getElementById('stat-mode').textContent = 'Nodes: ' + allNodes.get().length + ' | Edges: ' + allEdges.get().length;
+            return true;
+        }
+
+        function renderMergedGraphData(graphData) {
+            if (!graphData || !graphData.nodes || graphData.nodes.length === 0) return false;
+            const queryNodes = graphData.nodes.filter(function(n) { return n.type === 'query'; });
+            const regularNodes = graphData.nodes.filter(function(n) { return n.type !== 'query'; });
+            const regularIndex = {};
+            regularNodes.forEach(function(n, index) { regularIndex[n.id] = index; });
+
+            const visNodes = graphData.nodes.map(function(n, index) {
+                const isQuery = n.type === 'query';
+                const regularPosition = regularIndex[n.id] || 0;
+                const queryIndex = isQuery ? queryNodes.findIndex(function(q) { return q.id === n.id; }) : -1;
+                return {
+                    id: n.id,
+                    label: isQuery ? (n.name || 'Query') : (n.name + (n.path ? '\n' + n.path : '')),
+                    title: '<b>' + (n.name || n.id) + '</b>' +
+                        (n.type ? '<br>类型: ' + n.type : '') +
+                        (n.path ? '<br>路径/查询: ' + n.path : '') +
+                        (n.comment ? '<br><br>' + n.comment.substring(0, 240) : ''),
+                    group: n.type,
+                    shape: isQuery ? 'dot' : undefined,
+                    size: isQuery ? 13 : undefined,
+                    font: isQuery ? { color: '#7d4e00', size: 11, vadjust: -8 } : undefined,
+                    color: isQuery ? { background: '#fff8c5', border: '#bf8700' } : undefined,
+                    raw_data: n,
+                    isExpanded: false,
+                    _expandedFrom: null,
+                    x: isQuery ? -260 : -40 + (regularPosition % 5) * 80,
+                    y: isQuery ? -120 + queryIndex * 70 : -160 + Math.floor(regularPosition / 5) * 70,
+                    fixed: false,
+                };
+            });
+
+            const visEdges = graphData.edges.map(function(e, index) {
+                const edgeType = e.properties ? e.properties.type : '';
+                const score = e.properties && Number.isFinite(Number(e.properties.score)) ? Number(e.properties.score) : null;
+                return {
+                    id: e.id || ('merged-' + index + '-' + e.source + '-' + e.target + '-' + edgeType),
+                    from: e.source,
+                    to: e.target,
+                    label: edgeType === 'similarity' && score !== null ? formatSimilarity(score) : edgeType,
+                    title: e.properties ? (e.properties.query || e.properties.import_name || e.properties.description || edgeType) : '',
+                    dashes: edgeType === 'similarity',
+                    width: edgeType === 'similarity' ? 1.5 : 1,
+                    hoverWidth: edgeType === 'similarity' ? 1.5 : 2,
+                    selectionWidth: edgeType === 'similarity' ? 1.5 : 2,
+                    smooth: { type: 'dynamic' },
+                    length: edgeType === 'similarity' ? 170 : 120,
+                    arrows: { to: { enabled: true, scaleFactor: edgeType === 'similarity' ? 0.45 : 0.7, type: 'arrow' } },
+                    color: edgeType === 'similarity'
+                        ? { color: '#bf8700', highlight: '#9a6700', hover: '#9a6700' }
+                        : { color: '#8c959f', highlight: '#57606a', hover: '#57606a' },
+                    font: edgeType === 'similarity'
+                        ? { align: 'middle', color: '#7d4e00', size: 11 }
+                        : { align: 'top', color: '#57606a', size: 10 },
+                };
+            });
+
+            allNodes.clear();
+            allEdges.clear();
+            allNodes.update(visNodes);
+            allEdges.update(visEdges);
+            network.setOptions({
+                physics: {
+                    enabled: true,
+                    solver: 'forceAtlas2Based',
+                    stabilization: { enabled: true, iterations: 500, updateInterval: 25 },
+                    forceAtlas2Based: {
+                        gravitationalConstant: -75,
+                        centralGravity: 0.015,
+                        springLength: 150,
+                        springConstant: 0.06,
+                        avoidOverlap: 0.8
+                    }
+                },
+                layout: { improvedLayout: true },
+                edges: {
+                    width: 1,
+                    smooth: { type: 'dynamic' },
+                    arrows: { to: { enabled: true, scaleFactor: 0.7, type: 'arrow' } },
+                    color: { color: '#8c959f', highlight: '#57606a', hover: '#57606a' },
+                },
+            });
+            graphLocked = false;
+            var btn = document.getElementById('btn-lock');
+            btn.textContent = '解锁';
+            btn.title = '解锁图谱（启用物理模拟）';
+            setupAutoLock();
+            network.fit({ animation: true });
+            document.getElementById('stat-mode').textContent = 'Nodes: ' + allNodes.get().length + ' | Edges: ' + allEdges.get().length;
+            return true;
+        }
+
+        async function expandNode(nodeId) {
+            const node = allNodes.get(nodeId);
+            if (!node || node.isExpanded) return;
+            loader.style.display = 'block';
+            try {
+                const response = await fetch('/api/neighbors/' + nodeId);
+                if (!response.ok) throw new Error('HTTP error! status: ' + response.status);
+                const newData = await response.json();
+                const newNodes = newData.nodes.map(n => ({ ...n, _expandedFrom: nodeId }));
+                const newEdges = newData.edges.map(e => ({ ...e, _expandedFrom: nodeId }));
+                updateGraph({ nodes: newNodes, edges: newEdges }, false);
+                allNodes.update({ id: nodeId, isExpanded: true, color: { background: '#bf8700', border: '#9a6700' } });
+            } catch (error) {
+                console.error('Failed to expand node ' + nodeId + ':', error);
+            } finally {
+                loader.style.display = 'none';
+            }
+        }
+
+        function collapseNode(nodeId) {
+            const node = allNodes.get(nodeId);
+            if (!node || !node.isExpanded) return;
+            let nodesToRemove = new Set(), edgesToRemove = new Set();
+            let nodesToProcess = [nodeId];
+            while (nodesToProcess.length > 0) {
+                const currentId = nodesToProcess.shift();
+                const expandedEdges = allEdges.get({ filter: edge => edge._expandedFrom === currentId });
+                expandedEdges.forEach(edge => edgesToRemove.add(edge.id));
+                const expandedNodes = allNodes.get({ filter: node => node._expandedFrom === currentId });
+                expandedNodes.forEach(childNode => {
+                    const connectedEdges = network.getConnectedEdges(childNode.id);
+                    const isConnectedToKeptNode = connectedEdges.some(edgeId => !edgesToRemove.has(edgeId));
+                    if (!isConnectedToKeptNode) {
+                        nodesToRemove.add(childNode.id);
+                        if (childNode.isExpanded) nodesToProcess.push(childNode.id);
+                    }
+                });
+            }
+            if (nodesToRemove.size > 0) allNodes.remove(Array.from(nodesToRemove));
+            if (edgesToRemove.size > 0) allEdges.remove(Array.from(edgesToRemove));
+            allNodes.update({ id: nodeId, isExpanded: false, color: {} });
+        }
+
+        // ==================== Node CRUD ====================
+        async function saveNode() {
+            const nodeId = document.getElementById('node-id').value;
+            const name = document.getElementById('node-name').value;
+            const type = document.getElementById('node-type').value;
+            const description = document.getElementById('node-desc').value;
+            if (!name || !type) { alert('名称和类型不能为空'); return; }
+            const url = nodeId ? '/api/node/' + nodeId : '/api/node';
+            const method = nodeId ? 'PUT' : 'POST';
+            try {
+                const response = await fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, type: type, description: description }) });
+                const result = await response.json();
+                if (response.ok) {
+                    alert(result.message);
+                    if (nodeId) allNodes.update({ id: parseInt(nodeId), label: name, group: type, raw_data: { id: parseInt(nodeId), name: name, type: type, description: description } });
+                } else { throw new Error(result.error); }
+            } catch (error) { alert('保存失败: ' + error.message); }
+        }
+
+        async function deleteNode() {
+            const nodeId = document.getElementById('node-id').value;
+            if (!nodeId) { alert('请先选择一个节点'); return; }
+            if (!confirm('确定要删除ID为 ' + nodeId + ' 的节点吗？')) return;
+            try {
+                const response = await fetch('/api/node/' + nodeId, { method: 'DELETE' });
+                const result = await response.json();
+                if (response.ok) {
+                    alert(result.message);
+                    allNodes.remove(parseInt(nodeId));
+                    document.getElementById('node-id').value = '';
+                    document.getElementById('node-name').value = '';
+                    document.getElementById('node-type').value = '';
+                    document.getElementById('node-desc').value = '';
+                } else { throw new Error(result.error); }
+            } catch (error) { alert('删除失败: ' + error.message); }
+        }
+
+        // ==================== Code Graph: Browse ====================
+        async function browsePath() {
+            const path = document.getElementById('code-path').value;
+            if (!path) { alert('请输入路径'); return; }
+            try {
+                const resp = await fetch('/api/browse-path', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: path }) });
+                const result = await resp.json();
+                if (!resp.ok) { alert(result.error); return false; }
+                const info = document.getElementById('path-info');
+                info.style.display = 'block';
+                info.innerHTML = '<b>' + result.file_count + '</b> 个Python文件' +
+                    (result.file_count > 20 ? '<br><span style="font-size:0.85em">前20个: ' + result.files.slice(0, 20).join(', ') + ' ...</span>' :
+                     '<br><span style="font-size:0.85em">' + result.files.join(', ') + '</span>');
+            } catch (e) { alert('扫描失败: ' + e.message); }
+        }
+
+        // ==================== Code Graph: Build ====================
+        let buildPollTimer = null;
+
+        async function buildCodeGraph() {
+            const path = document.getElementById('code-path').value;
+            const output = document.getElementById('code-graph-output').value || 'code_graph.sqlite';
+            if (!path) { alert('请输入路径'); return; }
+            document.getElementById('build-code-graph-button').disabled = true;
+            try {
+                const resp = await fetch('/api/build-code-graph', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: path, output: output }) });
+                const result = await resp.json();
+                if (!resp.ok) { alert(result.error); document.getElementById('build-code-graph-button').disabled = false; return; }
+                buildPollTimer = setInterval(pollBuildStatus, 1000);
+            } catch (e) {
+                alert('启动构建失败: ' + e.message);
+                document.getElementById('build-code-graph-button').disabled = false;
+            }
+        }
+
+        async function pollBuildStatus() {
+            try {
+                const resp = await fetch('/api/build-status');
+                const status = await resp.json();
+                const pct = status.total > 0 ? Math.round(status.progress / status.total * 100) : 0;
+                document.getElementById('build-progress').style.width = pct + '%';
+                document.getElementById('build-message').textContent = status.message;
+                if (!status.running) {
+                    clearInterval(buildPollTimer);
+                    document.getElementById('build-code-graph-button').disabled = false;
+                    if (status.result && !status.result.error) {
+                        document.getElementById('build-message').textContent =
+                            '完成! 文件: ' + status.result.files + ', 文件夹: ' + status.result.folders + ', 引用: ' + status.result.import_edges;
+                    } else if (status.result && status.result.error) {
+                        alert('构建失败: ' + status.result.error);
+                    }
+                }
+            } catch (e) { clearInterval(buildPollTimer); document.getElementById('build-code-graph-button').disabled = false; }
+        }
+
+        // ==================== Code Graph: Search ====================
+        async function searchCodeGraph() {
+            const query = document.getElementById('code-search-query').value;
+            const dbPath = document.getElementById('code-graph-output').value || 'code_graph.sqlite';
+            const threshold = parseFloat(document.getElementById('code-search-threshold').value);
+            const nHops = parseInt(document.getElementById('code-search-hops').value, 10);
+            if (!query) { alert('请输入搜索内容'); return; }
+            try {
+                const resp = await fetch('/api/code-graph/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: query, db_path: dbPath, threshold: threshold, n_hops: nHops, top_k: 15 }) });
+                const result = await resp.json();
+                if (!resp.ok) { alert(result.error); return; }
+                const container = document.getElementById('code-search-results');
+                container.innerHTML = '';
+                if (!result.results.length) { container.innerHTML = '<div style="padding:8px;color:#57606a;font-size:0.85em;">未找到相关结果</div>'; return; }
+                result.results.forEach(function(r) {
+                    const div = document.createElement('div');
+                    div.className = 'search-result-item history-row';
+                    div.innerHTML = '<span class="score">' + (r.score * 100).toFixed(1) + '%</span><b>' + r.name + '</b><div class="path">' + r.path + '</div><div class="comment">' + (r.comment || '') + '</div>';
+                    div.addEventListener('click', function() { loadCodeGraphNode(r, dbPath); });
+                    container.appendChild(div);
+                });
+                updateGraph(result.graph_data || { nodes: [], edges: [], query: query, initial_nodes: {} }, true);
+                network.fit();
+            } catch (e) { alert('搜索失败: ' + e.message); }
+        }
+
+        async function loadCodeGraphNode(node, dbPath) {
+            try {
+                const resp = await fetch('/api/code-graph/graph-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ db_path: dbPath, filter: node.path }) });
+                const result = await resp.json();
+                if (!resp.ok) { alert(result.error); return; }
+                allNodes.clear(); allEdges.clear();
+                updateGraph(result, true);
+                network.fit();
+            } catch (e) { alert('加载失败: ' + e.message); }
+        }
+
+        // ==================== Overview ====================
+        var overviewData = null;
+
+        async function loadOverview() {
+            const dbPath = document.getElementById('overview-db-path').value || 'code_graph.sqlite';
+            loader.style.display = 'block';
+            try {
+                const resp = await fetch('/api/code-graph/overview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ db_path: dbPath })
+                });
+                const result = await resp.json();
+                if (!resp.ok) { alert(result.error); return; }
+                overviewData = result;
+                const s = result.stats;
+                document.getElementById('ov-files').textContent = s.file_count;
+                document.getElementById('ov-folders').textContent = s.folder_count;
+                document.getElementById('ov-imports').textContent = s.import_count;
+                document.getElementById('ov-contains').textContent = s.contain_count;
+                document.getElementById('ov-commented').textContent = s.commented_count + ' / ' + s.file_count;
+                document.getElementById('ov-total-nodes').textContent = s.total_nodes;
+                document.getElementById('overview-stats').style.display = 'block';
+                document.getElementById('stat-mode').textContent = 'Nodes: ' + s.total_nodes + ' | Edges: ' + s.total_edges;
+                return true;
+            } catch (e) {
+                alert('加载概览失败: ' + e.message);
+                return false;
+            } finally {
+                loader.style.display = 'none';
+            }
+        }
+
+        async function loadGlobalOverview() {
+            const dbPath = document.getElementById('code-graph-output').value || document.getElementById('overview-db-path').value || 'code_graph.sqlite';
+            document.getElementById('overview-db-path').value = dbPath;
+            const loaded = await loadOverview();
+            if (loaded) renderOverviewGraph();
+        }
+
+        function renderOverviewGraph() {
+            if (!overviewData) { alert('请先加载概览'); return; }
+
+            const showFiles = document.getElementById('ov-show-files').checked;
+            const showFolders = document.getElementById('ov-show-folders').checked;
+            const showImports = document.getElementById('ov-show-imports').checked;
+            const showContains = document.getElementById('ov-show-contains').checked;
+            const labelMode = document.getElementById('ov-label-mode').value;
+            const layout = document.getElementById('ov-layout').value;
+
+            const filteredNodes = overviewData.nodes.filter(function(n) {
+                if (n.type === 'file' && !showFiles) return false;
+                if (n.type === 'folder' && !showFolders) return false;
+                return true;
+            });
+            const nodeIdSet = new Set(filteredNodes.map(function(n) { return n.id; }));
+
+            const filteredEdges = overviewData.edges.filter(function(e) {
+                if (!nodeIdSet.has(e.source) || !nodeIdSet.has(e.target)) return false;
+                var edgeType = e.properties ? e.properties.type : '';
+                if (edgeType === 'imports' && !showImports) return false;
+                if (edgeType === 'contains' && !showContains) return false;
+                return true;
+            });
+
+            var visNodes = filteredNodes.map(function(n) {
+                return {
+                    id: n.id,
+                    label: labelMode === 'path' ? (n.path || n.name) : n.name,
+                    title: '<b>' + n.name + '</b>' +
+                        (n.type ? '<br>类型: ' + n.type : '') +
+                        (n.path ? '<br>路径: ' + n.path : '') +
+                        (n.comment ? '<br><br>' + n.comment.substring(0, 300) : ''),
+                    group: n.type,
+                    raw_data: n,
+                    isExpanded: false,
+                    _expandedFrom: null
+                };
+            });
+
+            var visEdges = filteredEdges.map(function(e) {
+                return {
+                    id: 's' + e.source + '-t' + e.target,
+                    from: e.source,
+                    to: e.target,
+                    label: e.properties ? e.properties.type : '',
+                    title: e.properties ? (e.properties.import_name || '') : '',
+                };
+            });
+
+            allNodes.clear();
+            allEdges.clear();
+            allNodes.update(visNodes);
+            allEdges.update(visEdges);
+
+            if (layout === 'hierarchical') {
+                network.setOptions({
+                    physics: { enabled: false },
+                    layout: {
+                        hierarchical: {
+                            direction: 'UD',
+                            sortMethod: 'directed',
+                            levelSeparation: 120,
+                            nodeSpacing: 80,
+                            blockShifting: true,
+                            edgeMinimization: true,
+                            parentCentralization: true,
+                        }
+                    }
+                });
+                graphLocked = true;
+                var btn = document.getElementById('btn-lock');
+                btn.textContent = '🔓 解锁';
+            } else {
+                network.setOptions({
+                    physics: {
+                        enabled: true,
+                        solver: 'forceAtlas2Based',
+                        stabilization: { enabled: true, iterations: 300, updateInterval: 25 },
+                        forceAtlas2Based: {
+                            gravitationalConstant: -60, centralGravity: 0.01,
+                            springLength: 100, springConstant: 0.08, avoidOverlap: 0.5
+                        }
+                    },
+                    layout: { improvedLayout: true }
+                });
+                setupAutoLock();
+            }
+            network.fit();
+        }
+
+        function handleOverviewNodeClick(params) {
+            if (params.nodes.length === 0) {
+                document.getElementById('ov-node-detail').innerHTML = '点击图谱中的节点查看详情';
+                return;
+            }
+            const nodeId = params.nodes[0];
+            const node = allNodes.get(nodeId);
+            if (!node || !node.raw_data) return;
+            const d = node.raw_data;
+            var html = '<div style="margin-bottom:6px;"><b>' + d.name + '</b></div>';
+            html += '<div>类型: ' + (d.type || '-') + '</div>';
+            if (d.path) html += '<div>路径: ' + d.path + '</div>';
+            if (d.comment) {
+                html += '<div style="margin-top:6px;padding:6px;background:#f6f8fa;border:1px solid #d0d7de;border-radius:4px;max-height:200px;overflow-y:auto;">' +
+                    '<b>LLM 注释:</b><br>' + d.comment + '</div>';
+            }
+            if (d.source_preview) {
+                html += '<details style="margin-top:6px;"><summary style="cursor:pointer;color:#0969da;">源码预览</summary>' +
+                    '<div class="code-preview" style="margin-top:4px;">' + escapeHtml(d.source_preview) + '</div></details>';
+            }
+            document.getElementById('ov-node-detail').innerHTML = html;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // ==================== Config ====================
+        async function loadConfig() {
+            try {
+                const resp = await fetch('/api/config');
+                const config = await resp.json();
+                document.getElementById('cfg-llm-base-url').value = config.llm_base_url || '';
+                document.getElementById('cfg-llm-api-key').value = config.llm_api_key || '';
+                document.getElementById('cfg-llm-model').value = config.llm_model || '';
+                document.getElementById('cfg-emb-base-url').value = config.embedding_base_url || '';
+                document.getElementById('cfg-emb-api-key').value = config.embedding_api_key || '';
+                document.getElementById('cfg-emb-model').value = config.embedding_model || '';
+            } catch (e) { console.error('加载配置失败:', e); }
+        }
+
+        async function saveConfig() {
+            const config = {
+                llm_base_url: document.getElementById('cfg-llm-base-url').value,
+                llm_api_key: document.getElementById('cfg-llm-api-key').value,
+                llm_model: document.getElementById('cfg-llm-model').value,
+                embedding_base_url: document.getElementById('cfg-emb-base-url').value,
+                embedding_api_key: document.getElementById('cfg-emb-api-key').value,
+                embedding_model: document.getElementById('cfg-emb-model').value,
+            };
+            try {
+                const resp = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) });
+                const result = await resp.json();
+                alert(result.message);
+            } catch (e) { alert('保存配置失败: ' + e.message); }
+        }
+
+        // ==================== Event Listeners ====================
+        document.getElementById('save-node-button').addEventListener('click', saveNode);
+        document.getElementById('delete-node-button').addEventListener('click', deleteNode);
+        document.getElementById('browse-path-button').addEventListener('click', browsePath);
+        document.getElementById('build-code-graph-button').addEventListener('click', buildCodeGraph);
+        document.getElementById('code-search-button').addEventListener('click', searchCodeGraph);
+        document.getElementById('save-config-button').addEventListener('click', saveConfig);
+        document.getElementById('btn-global-overview').addEventListener('click', loadGlobalOverview);
+        document.getElementById('btn-fit').addEventListener('click', function() { if (network) network.fit(); });
+
+        document.getElementById('code-search-threshold').addEventListener('input', function(e) {
+            document.getElementById('code-search-threshold-value').textContent = parseFloat(e.target.value).toFixed(2);
+        });
+        document.getElementById('code-search-hops').addEventListener('input', function(e) {
+            document.getElementById('code-search-hops-value').textContent = parseInt(e.target.value, 10);
+        });
+
+        // Lock/unlock physics
+        let graphLocked = false;
+        document.getElementById('btn-lock').addEventListener('click', function() {
+            if (!network) return;
+            graphLocked = !graphLocked;
+            network.setOptions({ physics: { enabled: !graphLocked } });
+            var btn = document.getElementById('btn-lock');
+            btn.textContent = graphLocked ? '🔓 解锁' : '🔒 锁定';
+            btn.title = graphLocked ? '解锁图谱（启用物理模拟）' : '锁定图谱（关闭物理模拟，保留拖拽）';
+        });
+
+        // Auto-lock after physics stabilizes
+        function setupAutoLock() {
+            if (!network) return;
+            network.once('stabilizationIterationsDone', function() {
+                graphLocked = true;
+                network.setOptions({ physics: { enabled: false } });
+                var btn = document.getElementById('btn-lock');
+                btn.textContent = '🔓 解锁';
+                btn.title = '解锁图谱（启用物理模拟）';
+            });
+        }
+
+        // Overview events
+        document.getElementById('load-overview-button').addEventListener('click', loadOverview);
+        document.getElementById('ov-render-button').addEventListener('click', renderOverviewGraph);
+
+        // History events
+        document.getElementById('refresh-history-button').addEventListener('click', function() { loadHistory(); });
+        document.getElementById('merge-history-button').addEventListener('click', mergeSelectedSessions);
+        document.getElementById('delete-history-selected-button').addEventListener('click', deleteSelectedSessions);
+        document.getElementById('history-select-all').addEventListener('change', function(e) {
+            document.querySelectorAll('.history-select').forEach(function(input) { input.checked = e.target.checked; });
+        });
+        var historyPollTimer = null;
+        var lastHistoryId = null;
+        var currentSessionId = null;
+        function startHistoryPoll() {
+            if (historyPollTimer) clearInterval(historyPollTimer);
+            historyPollTimer = setInterval(function() {
+                if (document.getElementById('auto-refresh-history').checked) {
+                    loadHistory(true);
+                }
+            }, 3000);
+        }
+        async function loadHistory(silent) {
+            try {
+                const resp = await fetch('/api/sessions');
+                const data = await resp.json();
+                const list = document.getElementById('history-list');
+                list.innerHTML = '';
+                if (!data.sessions.length) {
+                    list.innerHTML = '<div style="padding:8px;color:#57606a;font-size:0.85em;">暂无查询历史。LLM Agent 调用代码图谱查询时会自动保存到此处。</div>';
+                    return;
+                }
+                var newestId = data.sessions.length > 0 ? data.sessions[0].id : null;
+                var isNewHistory = newestId && newestId !== lastHistoryId;
+                lastHistoryId = newestId;
+
+                data.sessions.forEach(function(s) {
+                    var div = document.createElement('div');
+                    div.className = 'search-result-item';
+                    var timeStr = (s.created_at || '').replace('T', ' ').substring(0, 19);
+                    div.innerHTML = '<span style="float:right;font-size:0.78em;color:#57606a;">' + timeStr + '</span>' +
+                        '<b>' + s.tool_name + '</b>' +
+                        '<div class="path">' + (s.query ? s.query.substring(0, 80) : '') + '</div>' +
+                        '<div style="font-size:0.78em;color:#57606a;">' + s.node_count + ' 节点, ' + s.edge_count + ' 边</div>';
+                    div.addEventListener('click', function() { loadSession(s.id); });
+                    div.insertAdjacentHTML('afterbegin', '<input type="checkbox" class="history-select" value="' + s.id + '">');
+                    div.querySelector('.history-select').addEventListener('click', function(event) { event.stopPropagation(); });
+                    list.appendChild(div);
+                });
+
+                if (newestId && ((isNewHistory && document.getElementById('auto-refresh-history').checked) || (!silent && !currentSessionId))) {
+                    loadSession(newestId);
+                }
+            } catch (e) {
+                if (!silent) console.error('加载历史失败:', e);
+            }
+        }
+        function getSelectedSessionIds() {
+            return Array.from(document.querySelectorAll('.history-select:checked')).map(function(input) { return input.value; });
+        }
+
+        async function deleteSelectedSessions() {
+            const ids = getSelectedSessionIds();
+            if (!ids.length) { alert('请选择要删除的历史记录'); return; }
+            if (!confirm('确定删除选中的 ' + ids.length + ' 条查询历史？')) return;
+            try {
+                const resp = await fetch('/api/sessions', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: ids })
+                });
+                const result = await resp.json();
+                if (!resp.ok) { alert(result.error || '删除失败'); return; }
+                if (ids.indexOf(currentSessionId) !== -1) currentSessionId = null;
+                document.getElementById('history-detail').innerHTML = '选择一条历史记录查看详情';
+                document.getElementById('history-select-all').checked = false;
+                loadHistory();
+            } catch (e) {
+                alert('删除失败: ' + e.message);
+            }
+        }
+
+        async function mergeSelectedSessions() {
+            const ids = getSelectedSessionIds();
+            if (ids.length < 2) { alert('请至少选择两条历史记录进行合并'); return; }
+            try {
+                const resp = await fetch('/api/sessions/merge', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: ids })
+                });
+                const merged = await resp.json();
+                if (!resp.ok) { alert(merged.error || '合并失败'); return; }
+                currentSessionId = 'merged:' + ids.join(',');
+                renderGraphData(merged.graph_data);
+                var detail = document.getElementById('history-detail');
+                var html = '<div style="margin-bottom:8px;"><b>合并查询历史</b> - ' + ids.length + ' 条记录</div>';
+                html += '<div style="font-size:0.8em;color:#57606a;margin-bottom:6px;">节点 ' +
+                    merged.graph_data.nodes.length + '，边 ' + merged.graph_data.edges.length + '</div>';
+                html += '<details open><summary style="cursor:pointer;color:#0969da;">调用时间线</summary><div class="code-preview" style="margin-top:4px;max-height:400px;">' +
+                    escapeHtml(JSON.stringify(merged.sessions, null, 2)) + '</div></details>';
+                detail.innerHTML = html;
+            } catch (e) {
+                alert('合并失败: ' + e.message);
+            }
+        }
+
+        async function loadSession(sessionId) {
+            try {
+                currentSessionId = sessionId;
+                const resp = await fetch('/api/sessions/' + sessionId);
+                const session = await resp.json();
+                if (session.graph_data && session.graph_data.nodes && session.graph_data.nodes.length > 0) {
+                    allNodes.clear(); allEdges.clear();
+                    var visNodes = session.graph_data.nodes.map(function(n) {
+                        return {
+                            id: n.id,
+                            label: n.name + (n.path ? '\n' + n.path : ''),
+                            title: '<b>' + n.name + '</b>' +
+                                (n.type ? '<br>类型: ' + n.type : '') +
+                                (n.path ? '<br>路径: ' + n.path : '') +
+                                (n.comment ? '<br><br>' + n.comment.substring(0, 200) : ''),
+                            group: n.type,
+                            raw_data: n,
+                            isExpanded: false,
+                            _expandedFrom: null,
+                        };
+                    });
+                    var visEdges = session.graph_data.edges.map(function(e) {
+                        return {
+                            id: 's' + e.source + '-t' + e.target,
+                            from: e.source,
+                            to: e.target,
+                            label: (e.properties && e.properties.type) || '',
+                            title: (e.properties && (e.properties.import_name || '')) || '',
+                        };
+                    });
+                    allNodes.update(visNodes);
+                    allEdges.update(visEdges);
+                    applyQueryOverlay(session.graph_data);
+                    network.setOptions({
+                        physics: {
+                            enabled: true,
+                            solver: 'forceAtlas2Based',
+                            stabilization: { enabled: true, iterations: 300, updateInterval: 25 },
+                            forceAtlas2Based: { gravitationalConstant: -60, centralGravity: 0.01, springLength: 100, springConstant: 0.08, avoidOverlap: 0.5 }
+                        },
+                        layout: { improvedLayout: true }
+                    });
+                    setupAutoLock();
+                    network.fit();
+                }
+                var detail = document.getElementById('history-detail');
+                var html = '<div style="margin-bottom:8px;"><b>' + session.tool_name + '</b> — ' +
+                    (session.created_at || '').replace('T', ' ').substring(0, 19) + '</div>';
+                if (session.query) {
+                    html += '<div style="margin-bottom:6px;"><b>查询:</b> ' + escapeHtml(session.query) + '</div>';
+                }
+                if (session.result_text) {
+                    html += '<details open style="margin-top:6px;"><summary style="cursor:pointer;color:#0969da;">查询结果</summary>' +
+                        '<div class="code-preview" style="margin-top:4px;max-height:400px;">' + escapeHtml(session.result_text) + '</div></details>';
+                }
+                html += '<div style="margin-top:8px;"><button class="inline danger" onclick="deleteSession(\'' + session.id + '\')">删除此记录</button></div>';
+                detail.innerHTML = html;
+            } catch (e) {
+                console.error('加载session失败:', e);
+            }
+        }
+        async function deleteSession(sessionId) {
+            if (!confirm('确定删除此查询记录？')) return;
+            try {
+                await fetch('/api/sessions/' + sessionId, { method: 'DELETE' });
+                if (currentSessionId === sessionId) currentSessionId = null;
+                document.getElementById('history-detail').innerHTML = '选择一条历史记录查看详情';
+                loadHistory();
+            } catch (e) { console.error('删除失败:', e); }
+        }
+        startHistoryPoll();
+        loadHistory();
+
+        // ==================== Init ====================
+        window.onload = function() { initGraph(); loadConfig(); };
+    </script>
+</body>
+</html>
