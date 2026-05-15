@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Database & Index files
+*.sqlite
+*.index
+*.ids.json
+*.meta.json
+!llm_config.json
+
+# Logs
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Test cache
+.pytest_cache/
+
+# Query session data
+query_sessions/
+
+# Lock file (optional, uncomment if you want to exclude)
+# uv.lock

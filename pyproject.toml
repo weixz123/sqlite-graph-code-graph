@@ -1,0 +1,28 @@
+[project]
+name = "sqlite-graph-code-graph"
+version = "0.1.0"
+description = "Python代码图谱构建与查询系统 - 基于simple-graph-sqlite的知识图谱工具"
+requires-python = ">=3.10"
+dependencies = [
+    "tqdm",
+    "numpy",
+    "openai",
+    "simple-graph-sqlite",
+    "customtkinter",
+    "pyvis",
+    "pandas",
+    "flask",
+    "faiss-cpu>=1.13.2",
+    "mcp[cli]>=1.0.0",
+]
+
+[project.scripts]
+graph-gui = "graph_gui:main"
+code-graph-builder = "code_graph_builder:main"
+code-graph-query = "code_graph_query:main"
+code-graph-mcp = "code_graph_mcp_server:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]

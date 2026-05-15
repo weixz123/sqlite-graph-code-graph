@@ -1,0 +1,8 @@
+{
+  "llm_base_url": "https://api.deepseek.com/v1",
+  "llm_api_key": "sk-408b34c1dce141bdb0f082656511631b",
+  "llm_model": "deepseek-v4-flash",
+  "embedding_base_url": "http://localhost:1234/v1/",
+  "embedding_api_key": "not-needed",
+  "embedding_model": "text-embedding-bge-m3"
+}
